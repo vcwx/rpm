@@ -33,7 +33,7 @@ Repo config options
 | Key                        | Type   | Default   | Description                                                                                                                  |
 |----------------------------|--------|-----------|------------------------------------------------------------------------------------------------------------------------------|
 | `project.name`             | string | -         | Required. Used for generated resource names                                                                                  |
-| `shell`                    | string | `/bin/sh` | Shell used for all commands                                                                                                  |
+| `shell`                    | string | `/bin/sh` | Shell used for all commands. Override with `RPM__SHELL`.                                                                     |
 | `env.vars`                 | map    | -         | Environment variables applied to all commands                                                                                |
 | `env.deps`                 | list   | -         | Docker dependencies                                                                                                          |
 | `env.deps[].name`          | string | -         | Unique name referenced by bundles and blueprints                                                                             |

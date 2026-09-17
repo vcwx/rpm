@@ -12,9 +12,12 @@ import (
 	"github.com/vcwx/rpm/models"
 
 	"github.com/knadh/koanf/parsers/yaml"
+	"github.com/knadh/koanf/providers/env/v2"
 	"github.com/knadh/koanf/providers/file"
 	"github.com/knadh/koanf/v2"
 )
+
+const envPrefix = "RPM__"
 
 func findRepoRoot() string {
 	cmd := exec.Command("git", "rev-parse", "--show-toplevel")
@@ -35,6 +38,13 @@ func loadRepoConfig(path string) *RepoConfig {
 		panic(fmt.Sprintf("failed to read repo.yml at %s: %v", path, err))
 	}
 	validateRepoConfigSchema(k, path)
+
+	if err := k.Load(env.Provider(".", env.Opt{
+		Prefix:        envPrefix,
+		TransformFunc: transformEnv,
+	}), nil); err != nil {
+		panic(fmt.Sprintf("failed to apply environment overrides: %v", err))
+	}
 
 	var repo RepoConfig
 	if err := k.Unmarshal("", &repo); err != nil {
@@ -196,4 +206,13 @@ func validateRepoConfigSchema(k *koanf.Koanf, path string) {
 			panic(fmt.Sprintf("invalid repo.yml at %s: repo.yml env variables must be declared under env.vars", path))
 		}
 	}
+}
+
+func transformEnv(key, val string) (string, any) {
+	if val == "" {
+		return "", nil
+	}
+	key = strings.TrimPrefix(key, envPrefix)
+	key = strings.ToLower(key)
+	return strings.ReplaceAll(key, "__", "."), val
 }

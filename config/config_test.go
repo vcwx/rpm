@@ -514,6 +514,7 @@ func TestConfig_QueryTargets(t *testing.T) {
 }
 
 func TestNewConfigWithRepoFile(t *testing.T) {
+	t.Setenv("RPM__SHELL", "")
 	repoRoot := t.TempDir()
 	requireNoError(t, os.WriteFile(filepath.Join(repoRoot, "repo.yml"), []byte("project:\n  name: test-project\nshell: /bin/bash\n"), 0644))
 	requireNoError(t, os.MkdirAll(filepath.Join(repoRoot, "services", "api"), 0755))
@@ -536,6 +537,54 @@ targets:
 		assert.Equal(t, 3, *cfg.Bundles()["api"].Targets[0].Config.Index)
 	}
 	assert.Equal(t, "curl --fail http://localhost:8080/health", cfg.Bundles()["api"].Targets[0].Config.ReadinessCmd)
+}
+
+func TestNewConfigWithRepoFileShellEnv(t *testing.T) {
+	tests := []struct {
+		name     string
+		yaml     string
+		env      map[string]string
+		expected string
+	}{
+		{
+			name:     "RPM__SHELL overrides yaml shell",
+			yaml:     "project:\n  name: test-project\nshell: /bin/bash\n",
+			env:      map[string]string{"RPM__SHELL": "/usr/bin/env bash"},
+			expected: "/usr/bin/env bash",
+		},
+		{
+			name:     "empty RPM__SHELL keeps yaml shell",
+			yaml:     "project:\n  name: test-project\nshell: /bin/bash\n",
+			env:      map[string]string{"RPM__SHELL": ""},
+			expected: "/bin/bash",
+		},
+		{
+			name:     "RPM__SHELL fills missing yaml shell",
+			yaml:     "project:\n  name: test-project\n",
+			env:      map[string]string{"RPM__SHELL": "/bin/zsh"},
+			expected: "/bin/zsh",
+		},
+		{
+			name:     "empty RPM__SHELL defaults missing yaml shell",
+			yaml:     "project:\n  name: test-project\n",
+			env:      map[string]string{"RPM__SHELL": ""},
+			expected: "/bin/sh",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			for key, value := range tt.env {
+				t.Setenv(key, value)
+			}
+			repoRoot := t.TempDir()
+			requireNoError(t, os.WriteFile(filepath.Join(repoRoot, "repo.yml"), []byte(tt.yaml), 0644))
+
+			cfg := NewConfigWithRepoFile(filepath.Join(repoRoot, "repo.yml"))
+
+			assert.Equal(t, tt.expected, cfg.Repo().Shell)
+		})
+	}
 }
 
 func TestDiscoverBundlesSortedByRepoRelativePath(t *testing.T) {
