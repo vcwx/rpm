@@ -44,7 +44,7 @@ jobs:
       - name: Lint
         uses: golangci/golangci-lint-action@v8
         with:
-          version: v2.8.0
+          version: v2.13.2
 
   vuln:
     runs-on: ubuntu-latest
