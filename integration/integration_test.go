@@ -1188,6 +1188,35 @@ func TestUpReusesExistingRunningDependencyContainer(t *testing.T) {
 	assert.Equal(t, "rpm-dev-rabbitmq", readiness.calls[0].env["DOCKER_CONTAINER_NAME"])
 }
 
+func TestUpDoesNotReuseDependencyContainerFromAnotherProject(t *testing.T) {
+	shouldSkip(t)
+
+	backend := &recordingBackend{
+		existingContainers: map[string]string{"synaps-dev-postgres": "running"},
+	}
+	readiness := &recordingReadinessRunner{}
+	runner := docker.NewCLI(docker.Options{Project: "suites", Backend: backend, ReadinessRunner: readiness})
+	plan := &envstarlark.RuntimePlan{
+		Dependencies: []envstarlark.Dependency{{
+			Ref:          "postgres",
+			Name:         "postgres",
+			Image:        "postgres:16",
+			Ports:        []string{"5432:5432"},
+			ReadinessCmd: "true",
+		}},
+	}
+
+	_, err := runner.Up(context.Background(), "dev", plan)
+
+	require.NoError(t, err)
+	assert.Equal(t, []string{
+		"network suites-dev",
+		"run suites-dev-postgres",
+	}, backend.calls)
+	require.Len(t, readiness.calls, 1)
+	assert.Equal(t, "suites-dev-postgres", readiness.calls[0].env["DOCKER_CONTAINER_NAME"])
+}
+
 func TestUpReportsActualPortForReusedDependencyContainer(t *testing.T) {
 	shouldSkip(t)
 
@@ -1397,6 +1426,30 @@ func TestDownRemovesDependencyContainersAndNetwork(t *testing.T) {
 		"remove-container rpm-local-stack-postgres",
 		"remove-network rpm-local-stack",
 	}, backend.calls)
+}
+
+func TestDownRemovesOnlyProjectDependencyContainersAndNetwork(t *testing.T) {
+	shouldSkip(t)
+
+	backend := &recordingBackend{
+		existingContainers: map[string]string{
+			"suites-dev-postgres": "running",
+			"synaps-dev-postgres": "running",
+		},
+	}
+	runner := docker.NewCLI(docker.Options{Project: "suites", Backend: backend})
+	plan := &envstarlark.RuntimePlan{
+		Dependencies: []envstarlark.Dependency{{Ref: "postgres", Name: "postgres", Image: "postgres:16"}},
+	}
+
+	err := runner.Down(context.Background(), "dev", plan)
+	require.NoError(t, err)
+
+	assert.Equal(t, []string{
+		"remove-container suites-dev-postgres",
+		"remove-network suites-dev",
+	}, backend.calls)
+	assert.Equal(t, map[string]string{"synaps-dev-postgres": "running"}, backend.existingContainers)
 }
 
 func TestDownIgnoresMissingDependencyContainersAndNetwork(t *testing.T) {

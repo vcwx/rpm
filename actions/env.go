@@ -144,8 +144,10 @@ func (a *EnvAction) Prune(_ context.Context, opts EnvPruneOptions) error {
 }
 
 func (a *EnvAction) dockerCLI(sink envruntime.EventSink) *runtimedocker.CLI {
+	project := a.config.Repo().Project.Name
 	return runtimedocker.NewCLI(runtimedocker.Options{
-		VolumeNamer: runtimedocker.NewFileVolumeNamer(a.volumeCachePath(), a.config.Repo().Project.Name),
+		Project:     project,
+		VolumeNamer: runtimedocker.NewFileVolumeNamer(a.volumeCachePath(), project),
 		EventSink:   sink,
 		Shell:       a.config.Repo().Shell,
 	})
