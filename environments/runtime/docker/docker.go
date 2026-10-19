@@ -46,6 +46,7 @@ type ReadinessRunner interface {
 }
 
 type Options struct {
+	Project         string
 	Backend         Backend
 	PortAllocator   PortAllocator
 	VolumeNamer     VolumeNamer
@@ -72,6 +73,7 @@ type ContainerState struct {
 }
 
 type CLI struct {
+	project         string
 	backend         Backend
 	portAllocator   PortAllocator
 	volumeNamer     VolumeNamer
@@ -84,6 +86,10 @@ type CLI struct {
 }
 
 func NewCLI(opts Options) *CLI {
+	project := opts.Project
+	if project == "" {
+		project = "rpm"
+	}
 	backend := opts.Backend
 	if backend == nil {
 		backend = sdkBackend{}
@@ -94,7 +100,7 @@ func NewCLI(opts Options) *CLI {
 	}
 	volumeNamer := opts.VolumeNamer
 	if volumeNamer == nil {
-		volumeNamer = NewMemoryVolumeNamer("rpm")
+		volumeNamer = NewMemoryVolumeNamer(project)
 	}
 	readinessRunner := opts.ReadinessRunner
 	if readinessRunner == nil {
@@ -105,6 +111,7 @@ func NewCLI(opts Options) *CLI {
 		shell = "/bin/sh"
 	}
 	return &CLI{
+		project:         project,
 		backend:         backend,
 		portAllocator:   portAllocator,
 		volumeNamer:     volumeNamer,
@@ -115,11 +122,11 @@ func NewCLI(opts Options) *CLI {
 }
 
 func (c *CLI) Up(ctx context.Context, blueprint string, plan *envstarlark.RuntimePlan) (envruntime.DependencyStartup, error) {
-	dependencies, err := normalizeDependencies(blueprint, plan.Dependencies)
+	dependencies, err := c.normalizeDependencies(blueprint, plan.Dependencies)
 	if err != nil {
 		return envruntime.DependencyStartup{}, err
 	}
-	network := networkName(blueprint)
+	network := c.networkName(blueprint)
 	createdNetwork, err := c.backend.EnsureNetwork(ctx, network)
 	if err != nil {
 		return envruntime.DependencyStartup{}, err
@@ -149,7 +156,7 @@ func (c *CLI) Up(ctx context.Context, blueprint string, plan *envstarlark.Runtim
 				createdVolumes = append(createdVolumes, volume)
 			}
 		}
-		for _, name := range containerNames(blueprint, dep) {
+		for _, name := range c.containerNames(blueprint, dep) {
 			logSince := time.Now().UTC()
 			spec, mappings, err := c.containerSpec(ctx, network, name, dep, volumeBinds)
 			if err != nil {
@@ -216,11 +223,11 @@ func (c *CLI) stopLogFollowers() {
 	c.followerWG.Wait()
 }
 
-func normalizeDependencies(blueprint string, dependencies []envstarlark.Dependency) ([]envstarlark.Dependency, error) {
+func (c *CLI) normalizeDependencies(blueprint string, dependencies []envstarlark.Dependency) ([]envstarlark.Dependency, error) {
 	seen := make(map[string]envstarlark.Dependency)
 	normalized := make([]envstarlark.Dependency, 0, len(dependencies))
 	for _, dep := range dependencies {
-		for _, name := range containerNames(blueprint, dep) {
+		for _, name := range c.containerNames(blueprint, dep) {
 			existing, ok := seen[name]
 			if !ok {
 				seen[name] = dep
@@ -369,13 +376,13 @@ func (shellReadinessRunner) Run(ctx context.Context, shell string, command strin
 func (c *CLI) Down(ctx context.Context, blueprint string, plan *envstarlark.RuntimePlan) error {
 	c.stopLogFollowers()
 	for _, dep := range plan.Dependencies {
-		for _, name := range containerNames(blueprint, dep) {
+		for _, name := range c.containerNames(blueprint, dep) {
 			if err := c.backend.RemoveContainer(ctx, name); err != nil && !isMissingDockerResource(err) {
 				return err
 			}
 		}
 	}
-	if err := c.backend.RemoveNetwork(ctx, networkName(blueprint)); err != nil && !isMissingDockerResource(err) {
+	if err := c.backend.RemoveNetwork(ctx, c.networkName(blueprint)); err != nil && !isMissingDockerResource(err) {
 		return err
 	}
 	return nil
@@ -656,8 +663,8 @@ func isExistingDockerVolume(err error) bool {
 	return strings.Contains(output, "volume") && strings.Contains(output, "already exists")
 }
 
-func networkName(blueprint string) string {
-	return "rpm-" + sanitize(blueprint)
+func (c *CLI) networkName(blueprint string) string {
+	return sanitize(c.project) + "-" + sanitize(blueprint)
 }
 
 func (c *CLI) containerSpec(ctx context.Context, network string, name string, dep envstarlark.Dependency, volumeBinds []string) (ContainerSpec, []portMapping, error) {
@@ -721,8 +728,8 @@ func (c *CLI) publishPorts(ctx context.Context, dep envstarlark.Dependency) ([]s
 	return ports, mappings, nil
 }
 
-func containerNames(blueprint string, dep envstarlark.Dependency) []string {
-	return []string{networkName(blueprint) + "-" + sanitize(dep.Name)}
+func (c *CLI) containerNames(blueprint string, dep envstarlark.Dependency) []string {
+	return []string{c.networkName(blueprint) + "-" + sanitize(dep.Name)}
 }
 
 var invalidNameChars = regexp.MustCompile(`[^a-zA-Z0-9_.-]+`)
